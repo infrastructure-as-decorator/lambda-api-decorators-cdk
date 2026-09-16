@@ -1,13 +1,13 @@
 # Lambda API Decorators CDK
 
-AWS CDK integration for [Lambda API Decorators](https://github.com/lambda-api-decorators/lambda-api-decorators). Define API routes with Python decorators and let CDK create the Lambda functions, integrations, routes, and related configuration.
+AWS CDK integration for [Lambda API Decorators](https://github.com/infrastructure-as-decorator/lambda-api-decorators). Define API routes with Python decorators and let CDK create the Lambda functions, integrations, routes, and related configuration.
 
-The complete cross-package guides and architecture documentation are available at [lambda-api-decorators.github.io](https://lambda-api-decorators.github.io/).
+The complete cross-package guides and architecture documentation are available at [lambda-api-decorators.github.io](https://infrastructure-as-decorator.github.io/).
 
 ## Installation
 
 ```bash
-pip install lambda-api-decorators-cdk lambda-api-decorators
+pip install lambda-api-decorators-cdk
 ```
 
 The package requires Python 3.10 or newer and AWS CDK v2. The `lambda-api-decorators` package provides the decorators used by the Lambda source files.
