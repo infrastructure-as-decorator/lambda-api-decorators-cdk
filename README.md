@@ -1,98 +1,149 @@
 # Lambda API Decorators CDK
 
-## A library for AWS API Gateway/Lambda Proxy Integration
+AWS CDK integration for [Lambda API Decorators](https://github.com/lambda-api-decorators/lambda-api-decorators). Define API routes with Python decorators and let CDK create the Lambda functions, integrations, routes, and related configuration.
 
-Lambda API Decorators CDK allows simplified resource creation for AWS Lambda functions and Rest API resources by using decorators and setting a builder with default, common or custom values for IAM Roles, Runtimes, Timeouts, Layers, Environment values, etc. This project relies abstract syntactic trees (ast) to analyze the code of your lambda functions and generate infraestructure accordingly.
+The complete cross-package guides and architecture documentation are available at [lambda-api-decorators.github.io](https://lambda-api-decorators.github.io/).
 
-### Installation
+## Installation
 
-`lambda_api_decorators_cdk` is available from PyPI as `lambda-api-decorators-cdk`:
-
-    pip install lambda-api-decorators-cdk
-
-Installation of [lambda-api-decorators](https://pypi.org/project/lambda-api-decorators/) is also required as a dependency for your lambda functions, since it provides the definition of decorators used within this module.
-
-
-### Example
-
-```python
-    import lambda_api_decorators_cdk
-    or
-    from lambda_api_decorators_cdk import ResourceBuilder
+```bash
+pip install lambda-api-decorators-cdk lambda-api-decorators
 ```
 
-### Builder instance
+The package requires Python 3.10 or newer and AWS CDK v2. The `lambda-api-decorators` package provides the decorators used by the Lambda source files.
 
-You may define a builder using lambda_api_decorators_cdk's constructor `ResourceBuilder`. This method returns an instance of the class that will be used to configure and create your Lambda Functions. By default, no parameters are required to instantiate the object, but custom options may be passed in advanced use cases.
+## Quick start
 
-```python
-    from lambda_api_decorators_cdk import ResourceBuilder
-
-    builder = ResourceBuilder()
-```
-
-### Builder Configuration
-
-If opted to, you can set default values for IAM Roles, Memory Size, Timeout, Runtime and VPC.
-
-On the same note, support for common configuration that all the Lambda Functions will receive, such as Security Groups, Environment variables and Layers, is provided.
-
-Lastly you can setup custom environments, layers, security groups, vpcs a Lambda Function will receive ONLY if they have the decorators defined.
+`LambdaApi` is the recommended high-level construct. It creates a REST API by default and discovers decorated handlers below `lambda_path`.
 
 ```python
-    from lambda_api_decorators_cdk import ResourceBuilder
-    from aws_cdk import Duration
+from aws_cdk import Stack
+from constructs import Construct
 
-    builder = ResourceBuilder()
-    builder.set_default_timeout(Duration.seconds(30))
-    builder.add_common_environment("DATABASE_URI", "something-db-related")
-    builder.add_custom_environment("URL-PREFIX", "lambda-api-decorators-cdk-") #Lambda Function should have decorator @environment("URL-PREFIX")
-```
+from lambda_api_decorators_cdk import LambdaApi
 
-### Building
 
-Assuming you have already instantiated a Builder, configured it and ready to deploy your stack, then simply define the directory of your Lambda Functions and build!
-
-Note: For a Lambda Function to be recognised and built, it has to have a decorator specifying the HTTP method it responds to. Decorators are defined in the [lambda-api-decorators](https://pypi.org/project/lambda-api-decorators/) package.
-
-```python
-[...] # Imports
-
-class LambdaApiDecoratorsExampleStack(Stack):
-
+class ExampleStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        [...]  # Instantiating builder, defining options and layers...
-
-        lambda_path = 'lambdas'
-
-        restapi = apigateway.RestApi(
-            self, 'lambda-api-decorators-RestApi',
-            rest_api_name= 'lambda-api-decorators-restApi')
-        root_resource = restapi.root
-
-        builder.build(self, root_resource, lambda_path, print_tree=True)
-
+        LambdaApi(self, "ExampleApi", lambda_path="lambdas")
 ```
 
-## Maintainer releases
+A handler must include an HTTP method decorator from `lambda-api-decorators`:
 
-The Git tag is the single source of truth for this package's version. For
-example, `v0.3.0` produces Python package version `0.3.0`. This repository is
-versioned independently from `lambda-api-decorators`.
+```python
+from lambda_api_decorators import GET
 
-To release from `main`, choose and push a semantic version tag:
+
+@GET("/hello")
+def hello(event, context):
+    return {"statusCode": 200, "body": "Hello, world!"}
+```
+
+`lambda_path` is resolved from the directory where CDK is run. Files without a supported route decorator are ignored.
+
+## API types and imported APIs
+
+REST is the default. Select an HTTP API with `ApiType.HTTP`, or provide an existing supported API and let the construct infer its type.
+
+```python
+from aws_cdk import aws_apigateway as apigateway
+from lambda_api_decorators_cdk import ApiType, LambdaApi
+
+
+LambdaApi(self, "HttpApi", lambda_path="lambdas", api_type=ApiType.HTTP)
+
+existing_rest_api = apigateway.RestApi(self, "ExistingRestApi")
+LambdaApi(self, "ExistingApiRoutes", lambda_path="lambdas", api=existing_rest_api)
+```
+
+Created and imported REST APIs are supported. Concrete `aws_apigatewayv2.HttpApi` instances are supported for HTTP APIs.
+
+## Reusable configuration
+
+Use `LambdaApiConfig` for defaults and named resources shared by one or more `LambdaApi` constructs. Configuration must be complete before constructing the API.
+
+```python
+from aws_cdk import Duration, aws_lambda as lambda_
+from lambda_api_decorators_cdk import LambdaApi, LambdaApiConfig
+
+
+config = LambdaApiConfig(
+    runtime=lambda_.Runtime.PYTHON_3_12,
+    timeout=Duration.seconds(30),
+    memory_size=512,
+    environment={"ENVIRONMENT": "production"},
+)
+config.add_custom_environment("PAYMENTS_URL", "https://payments.example.com")
+
+LambdaApi(self, "ConfiguredApi", lambda_path="lambdas", config=config)
+```
+
+`LambdaApiConfig` supports default and custom runtimes, roles, VPCs, subnets, layers, security groups, and environment variables. It also supports registries for DynamoDB tables, S3 buckets, and REST or HTTP authorizers. A reused configuration creates an isolated builder snapshot for each API.
+
+## Source layout and layers
+
+By default, each handler is packaged relative to the source root. For a service-oriented layout, use `SourceLayout.SERVICE`:
+
+```python
+from lambda_api_decorators_cdk import LambdaApi, SourceLayout
+
+
+LambdaApi(
+    self,
+    "ServiceApi",
+    lambda_path="services",
+    source_layout=SourceLayout.SERVICE,
+    layers_path="layers",
+)
+```
+
+When `layers_path` is provided, each visible child directory is treated as a discoverable layer source. Explicit layer configuration remains available through `LambdaApiConfig`.
+
+## Authorization and permissions
+
+Register authorizers with a logical key and select the default authorizer for routes. A handler can override the default with `@authorizer("key")` or make itself public with `@public`.
+
+```python
+from aws_cdk import aws_apigateway as apigateway
+from lambda_api_decorators_cdk import LambdaApiConfig
+
+
+authorizer = apigateway.TokenAuthorizer(self, "UsersAuthorizer", handler=authorizer_fn)
+config = LambdaApiConfig(authorizers={"users": authorizer}, default_authorizer="users")
+```
+
+The resource registries also allow decorated handlers to request least-privilege grants for registered DynamoDB tables and S3 buckets. See the [complete documentation](https://lambda-api-decorators.github.io/) for decorator syntax and supported access levels.
+
+## Low-level builder
+
+`ResourceBuilder` remains a supported lower-level API for callers that need direct control over the API root or build lifecycle:
+
+```python
+from aws_cdk import Duration
+from lambda_api_decorators_cdk import ResourceBuilder
+
+
+builder = ResourceBuilder()
+builder.set_default_timeout(Duration.seconds(30))
+builder.add_common_environment("ENVIRONMENT", "production")
+builder.build(self, rest_api.root, "lambdas")
+```
+
+Prefer `LambdaApi` for new code. It owns API creation or reuse and delegates option resolution to isolated `ResourceBuilder` snapshots.
+
+## Releases
+
+The Git tag is the single source of truth for this package's version. For example, `v0.3.0` produces Python package version `0.3.0`. This repository is versioned independently from `lambda-api-decorators`.
+
+To release from `main`, push a semantic version tag:
 
 ```bash
 git checkout main
 git pull
-
 git tag v0.3.0
 git push origin v0.3.0
 ```
 
-Pushing the tag triggers the release workflow, which tests, builds, verifies
-the version, and publishes with PyPI trusted publishing. The PyPI project must
-have a trusted publisher configured for this repository, the `release.yml`
-workflow, and the `pypi` GitHub environment.
+Pushing the tag triggers the release workflow, which tests, builds, verifies the version, and publishes to PyPI using trusted publishing. The PyPI project must have a trusted publisher configured for this repository, the `release.yml` workflow, and the `pypi` GitHub environment.
