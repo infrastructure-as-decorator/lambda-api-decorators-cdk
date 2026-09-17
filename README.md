@@ -2,7 +2,7 @@
 
 AWS CDK integration for [Lambda API Decorators](https://github.com/infrastructure-as-decorator/lambda-api-decorators). Define API routes with Python decorators and let CDK create the Lambda functions, integrations, routes, and related configuration.
 
-The complete cross-package guides and architecture documentation are available at [lambda-api-decorators.github.io](https://infrastructure-as-decorator.github.io/).
+The complete cross-package guides and architecture documentation are available at [infrastructure-as-decorator.github.io](https://infrastructure-as-decorator.github.io/).
 
 ## Installation
 
@@ -114,7 +114,7 @@ authorizer = apigateway.TokenAuthorizer(self, "UsersAuthorizer", handler=authori
 config = LambdaApiConfig(authorizers={"users": authorizer}, default_authorizer="users")
 ```
 
-The resource registries also allow decorated handlers to request least-privilege grants for registered DynamoDB tables and S3 buckets. See the [complete documentation](https://lambda-api-decorators.github.io/) for decorator syntax and supported access levels.
+The resource registries also allow decorated handlers to request least-privilege grants for registered DynamoDB tables and S3 buckets. See the [complete documentation](https://infrastructure-as-decorator.github.io/docs/api-reference/index) for decorator syntax and supported access levels.
 
 ## Low-level builder
 
