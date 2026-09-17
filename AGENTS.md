@@ -10,7 +10,7 @@ The project goal is:
 
 GitHub organization:
 
-`lambda-api-decorators`
+`infrastructure-as-decorator`
 
 Package:
 
@@ -22,7 +22,7 @@ Python module:
 
 Project documentation:
 
-`https://lambda-api-decorators.github.io/`
+`https://infrastructure-as-decorator.github.io/`
 
 ## Design principles
 
