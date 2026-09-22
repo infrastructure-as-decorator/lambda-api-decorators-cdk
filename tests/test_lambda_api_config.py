@@ -12,7 +12,11 @@ def test_constructor_contract_and_empty_snapshot():
     assert list(parameters) == [
         "runtime", "timeout", "memory_size", "vpc", "vpc_subnets", "role",
         "layers", "security_groups", "environment", "dynamodb_tables",
-        "s3_buckets", "authorizers", "default_authorizer",
+        "s3_buckets", "authorizers", "default_authorizer", "default_runtime",
+        "default_role", "common_environment", "role_registry",
+        "environment_registry", "layer_registry", "security_group_registry",
+        "vpc_registry", "dynamodb_table_registry", "s3_bucket_registry",
+        "authorizer_registry",
     ]
     assert all(value.kind is inspect.Parameter.KEYWORD_ONLY
                for value in parameters.values())

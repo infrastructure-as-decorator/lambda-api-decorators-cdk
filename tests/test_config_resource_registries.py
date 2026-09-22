@@ -166,13 +166,20 @@ def test_common_environment_is_constructor_only_and_registered_values_override_i
         common_environment={"KEY": "common", "KEEP": "yes"},
         environment_registry={"selected": {"KEY": "registered"}},
     )
-    config.register_environment("selected", {"KEY": "registered"})
+    config.register_environment("additional", {"EXTRA": "registered"})
 
     assert not hasattr(config, "set_common_environment")
     assert not hasattr(config, "add_common_environment")
     selected = options(config, environment="selected")["environment"]
     assert selected["KEY"] == "registered"
     assert selected["KEEP"] == "yes"
+
+
+def test_register_environment_cannot_overwrite_constructor_registry_key():
+    config = LambdaApiConfig(environment_registry={"selected": {"KEY": "registered"}})
+
+    with pytest.raises(ValueError, match="selected"):
+        config.register_environment("selected", {"KEY": "replacement"})
 
 
 @pytest.mark.parametrize(
@@ -195,9 +202,16 @@ def test_resource_registries_are_constructor_backed_and_registerable(
     getattr(config, register_name)("registered", registered)
     builder = builder_snapshot(config)
 
-    assert getattr(builder, builder_name)["constructor"] is resource
-    assert getattr(builder, builder_name)["registered"] is registered
-
+    constructor_value = getattr(builder, builder_name)["constructor"]
+    registered_value = getattr(builder, builder_name)["registered"]
+    if builder_name == "custom_vpcs":
+        assert constructor_value[0] is resource
+        assert constructor_value[1] is None
+        assert registered_value[0] is registered
+        assert registered_value[1] is None
+    else:
+        assert constructor_value is resource
+        assert registered_value is registered
 
 @pytest.mark.parametrize(
     "register_name,resource_name",
