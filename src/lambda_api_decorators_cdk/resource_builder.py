@@ -241,9 +241,9 @@ class ResourceBuilder():
         if print_tree:
             ast_helper.dump_tree(graph)
         self._prepare_layers(construct, graph, layer_sources)
-        self._emit_authorization_diagnostics(construct, graph)
         self.build_from_graph(
             construct, graph, api_resource, lambda_root, source_layout)
+        self._emit_configuration_diagnostics(construct, graph)
 
     def build_http(self, construct, http_api: apigateway2.HttpApi,
                    lambda_path:str, print_tree: bool = False,
@@ -263,9 +263,9 @@ class ResourceBuilder():
         if print_tree:
             ast_helper.dump_tree(graph)
         self._prepare_layers(construct, graph, layer_sources)
-        self._emit_authorization_diagnostics(construct, graph)
         self.build_http_from_graph(
             construct, graph, http_api, lambda_root, source_layout)
+        self._emit_configuration_diagnostics(construct, graph)
 
     @staticmethod
     def _discover_layer_sources(layers_path: Optional[str]):
@@ -527,6 +527,127 @@ class ResourceBuilder():
         return key if state == "authorizer" else self.default_authorizer
 
     @staticmethod
+    def _diagnostic_rows(graph: ast_helper.Resource):
+        rows = []
+
+        def visit(resource):
+            for method in resource.get_methods():
+                rows.append((resource.get_path(), method))
+            for child in resource.get_connections():
+                visit(child)
+
+        visit(graph)
+        return sorted(rows, key=lambda item: (item[0], item[1].get_method()))
+
+    @staticmethod
+    def _diagnostic_table(title, default_label, columns, rows):
+        if not rows:
+            return None
+        lines = [title, default_label, "", "  ".join(columns)]
+        lines.extend("    ".join(row) for row in rows)
+        return "\n".join(lines)
+
+    def _emit_configuration_diagnostics(self, construct, graph):
+        if not isinstance(construct, Construct):
+            return
+        self._emit_authorization_diagnostics(construct, graph)
+        self._emit_role_diagnostics(construct, graph)
+        self._emit_vpc_diagnostics(construct, graph)
+        self._emit_shared_role_warning(construct, graph)
+
+    def _emit_role_diagnostics(self, construct, graph):
+        if self.default_role is None:
+            return
+        rows = []
+        for path, method in self._diagnostic_rows(graph):
+            decorators = self._configuration_decorators(method)
+            selected = decorators.get("role")
+            if selected is None:
+                continue
+            effective = self.get_custom_role(selected)
+            if effective is self.default_role:
+                continue
+            rows.append((method.get_method(), path, str(selected)))
+        message = self._diagnostic_table(
+            "Execution role overrides",
+            "Default role: configured default",
+            ("METHOD", "PATH", "EFFECTIVE"),
+            rows,
+        )
+        if message:
+            Annotations.of(construct).add_info(message)
+
+    @staticmethod
+    def _subnet_selection_name(selection):
+        if selection is None:
+            return "NONE"
+        subnet_type = getattr(selection, "subnet_type", None)
+        if subnet_type is not None:
+            return getattr(subnet_type, "value", str(subnet_type))
+        if getattr(selection, "subnet_group_name", None):
+            return str(selection.subnet_group_name)
+        if getattr(selection, "one_per_az", False):
+            return "ONE_PER_AZ"
+        if getattr(selection, "subnets", None):
+            return "EXPLICIT_SUBNETS"
+        return "DEFAULT"
+
+    def _emit_vpc_diagnostics(self, construct, graph):
+        if self.default_vpc is None:
+            return
+        default_vpc, default_subnets = self.default_vpc
+        rows = []
+        for path, method in self._diagnostic_rows(graph):
+            decorators = self._configuration_decorators(method)
+            selected = decorators.get("vpc")
+            if selected is None:
+                continue
+            effective_vpc, effective_subnets = self.get_custom_vpc(selected)
+            if (
+                effective_vpc is default_vpc
+                and effective_subnets is default_subnets
+            ):
+                continue
+            rows.append((
+                method.get_method(),
+                path,
+                str(selected),
+                self._subnet_selection_name(effective_subnets),
+            ))
+        message = self._diagnostic_table(
+            "VPC overrides",
+            "Default VPC: configured default",
+            ("METHOD", "PATH", "EFFECTIVE", "SUBNETS"),
+            rows,
+        )
+        if message:
+            Annotations.of(construct).add_info(message)
+
+    def _emit_shared_role_warning(self, construct, graph):
+        roles = {}
+        for path, method in self._diagnostic_rows(graph):
+            decorators = self._configuration_decorators(method)
+            selected = decorators.get("role")
+            if selected is None:
+                continue
+            grants = {
+                invocation.name
+                for invocation in method.get_decorator_invocations()
+                if invocation.name in {"grant_dynamodb", "grant_s3"}
+            }
+            if not grants:
+                continue
+            effective = self.get_custom_role(selected)
+            roles.setdefault(id(effective), (effective, set()))[1].add(path)
+
+        if any(len(paths) > 1 for _, paths in roles.values()):
+            Annotations.of(construct).add_warning_v2(
+                "LAD_ROLE_SHARED_PERMISSIONS",
+                "LAD_ROLE_SHARED_PERMISSIONS: an explicit execution role with "
+                "derived permissions is shared by multiple Lambda handlers.",
+            )
+
+    @staticmethod
     def _implements_interface(authorizer, interface) -> bool:
         return interface in getattr(authorizer, "__jsii_ifaces__", ())
 
@@ -609,14 +730,21 @@ class ResourceBuilder():
             return
         deviations.sort(key=lambda item: (item[0], item[1]))
         if self.default_authorizer is None:
-            heading = "Default authorizer: PUBLIC\n\nProtected routes:"
+            default_label = "Default authorizer: PUBLIC"
         else:
-            heading = f"Default authorizer: {self.default_authorizer}\n\nOverrides:"
-        details = "\n".join(
-            f"    {method} {path}    {value}"
+            default_label = f"Default authorizer: {self.default_authorizer}"
+        rows = [
+            (method, path, value)
             for path, method, value in deviations
+        ]
+        message = self._diagnostic_table(
+            "Authorization overrides",
+            default_label,
+            ("METHOD", "PATH", "EFFECTIVE"),
+            rows,
         )
-        Annotations.of(construct).add_info(f"{heading}\n{details}")
+        if message:
+            Annotations.of(construct).add_info(message)
 
     @staticmethod
     def _physical_resource_id(resource_type: str, physical_name: str) -> str:
