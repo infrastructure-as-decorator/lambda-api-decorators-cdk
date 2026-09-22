@@ -63,13 +63,13 @@ def test_protected_default_summary_lists_only_sorted_deviations(monkeypatch):
         make_method("PUT"),
     ]
     build(builder, stack, monkeypatch, methods)
-    found = messages(stack, "info", r"Default authorizer: users[\s\S]*Overrides:")
+    found = messages(stack, "info", r"Authorization overrides[\s\S]*Default authorizer: users")
     assert len(found) == 1
     text = found[0].entry.data
-    assert "GET /" in text and "PUBLIC" in text
-    assert "POST /" in text and "admins" in text
-    assert "PUT /" not in text
-    assert text.index("GET /") < text.index("POST /")
+    assert "METHOD" in text and "PATH" in text and "EFFECTIVE" in text
+    assert "GET    /    PUBLIC" in text
+    assert "POST    /    admins" in text
+    assert "PUT    /" not in text
 
 
 def test_public_default_summary_lists_only_explicit_protected_routes(monkeypatch):
@@ -84,11 +84,12 @@ def test_public_default_summary_lists_only_explicit_protected_routes(monkeypatch
     ]
     build(builder, stack, monkeypatch, methods)
     assert len(messages(stack, "warning", r"LAD_AUTH_PUBLIC_DEFAULT")) == 1
-    found = messages(stack, "info", r"Default authorizer: PUBLIC[\s\S]*Protected routes:")
+    found = messages(stack, "info", r"Authorization overrides[\s\S]*Default authorizer: PUBLIC")
     assert len(found) == 1
     text = found[0].entry.data
-    assert "POST /" in text and "users" in text
-    assert "GET /" not in text
+    assert "METHOD" in text and "PATH" in text and "EFFECTIVE" in text
+    assert "POST    /    users" in text
+    assert "GET    /" not in text
 
 
 def test_no_summary_when_every_route_inherits_protected_default(monkeypatch):
