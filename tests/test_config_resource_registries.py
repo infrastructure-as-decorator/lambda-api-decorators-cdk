@@ -35,6 +35,11 @@ def resources(stack):
         "Role",
         assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
     )
+    selected_role = iam.Role(
+        stack,
+        "SelectedRole",
+        assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+    )
     authorizer_handler = lambda_.Function(
         stack,
         "AuthorizerHandler",
@@ -44,6 +49,7 @@ def resources(stack):
     )
     return {
         "role": role_resource,
+        "selected_role": selected_role,
         "layer": lambda_.LayerVersion.from_layer_version_arn(
             stack,
             "Layer",
@@ -278,6 +284,7 @@ def test_registering_dynamodb_or_s3_does_not_grant_permissions(resources):
 def test_built_in_precedence_combines_common_and_selected_values(resources):
     config = LambdaApiConfig(
         default_role=resources["role"],
+        role_registry={"selected": resources["selected_role"]},
         common_environment={"SHARED": "common"},
         environment_registry={"selected": {"SHARED": "selected"}},
         layers=[resources["layer"]],
@@ -301,7 +308,8 @@ def test_built_in_precedence_combines_common_and_selected_values(resources):
         resources["security_group"], resources["security_group"]
     ]
     assert resolved["vpc"][0] is resources["vpc"]
-    assert resolved["role"] is resources["role"]
+    assert resolved["role"] is resources["selected_role"]
+    assert resolved["role"] is not resources["role"]
 
 
 def test_multiple_routes_for_one_handler_are_rejected_defensively(tmp_path):
