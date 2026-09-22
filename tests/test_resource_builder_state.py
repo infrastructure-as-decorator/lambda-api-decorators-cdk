@@ -37,7 +37,7 @@ def test_mutation_of_omitted_collections_does_not_leak_between_builders():
     first, second = ResourceBuilder(), ResourceBuilder()
     first.add_common_layer("only-first")
     first.add_common_security_group("only-first")
-    first.add_common_environment("only-first", "value")
+    first.common_environments["only-first"] = "value"
     first.add_custom_role("only-first", object())
     assert "only-first" not in second.common_layers
     assert "only-first" not in second.common_security_groups
@@ -46,9 +46,9 @@ def test_mutation_of_omitted_collections_does_not_leak_between_builders():
 
 
 def test_builtin_runtime_registry_has_existing_aliases(builder):
-    expected = {"python3.8", "python3.9", "python3.10", "python3.11", "python3.12"}
-    assert set(builder.custom_runtimes) >= expected
-    assert {runtime.name for runtime in builder.custom_runtimes.values()} >= expected
+    expected = {"python3.10", "python3.11", "python3.12", "python3.13", "python3.14"}
+    assert set(builder.custom_runtimes) == expected
+    assert {runtime.name for runtime in builder.custom_runtimes.values()} == expected
     assert builder.default_runtime is None
 
 

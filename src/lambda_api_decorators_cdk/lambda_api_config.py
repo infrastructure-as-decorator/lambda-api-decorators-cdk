@@ -1,4 +1,5 @@
-from typing import Mapping, Optional, Sequence
+from collections.abc import Mapping
+from typing import Optional, Sequence
 
 from aws_cdk import Duration
 from aws_cdk import aws_ec2 as ec2
@@ -29,7 +30,29 @@ class LambdaApiConfig:
         s3_buckets: Optional[Mapping[str, s3.IBucket]] = None,
         authorizers: Optional[Mapping[str, object]] = None,
         default_authorizer: Optional[str] = None,
+        default_runtime: Optional[str] = None,
+        default_role: Optional[iam.IRole] = None,
+        common_environment: Optional[Mapping[str, str]] = None,
+        role_registry: Optional[Mapping[str, iam.IRole]] = None,
+        environment_registry: Optional[Mapping[str, Mapping[str, str]]] = None,
+        layer_registry: Optional[Mapping[str, lambda_.ILayerVersion]] = None,
+        security_group_registry: Optional[Mapping[str, ec2.ISecurityGroup]] = None,
+        vpc_registry: Optional[Mapping[str, ec2.IVpc]] = None,
+        dynamodb_table_registry: Optional[Mapping[str, dynamodb.ITable]] = None,
+        s3_bucket_registry: Optional[Mapping[str, s3.IBucket]] = None,
+        authorizer_registry: Optional[Mapping[str, object]] = None,
     ) -> None:
+        if default_runtime is not None:
+            self._validate_runtime_name(default_runtime)
+        if default_runtime is not None and runtime is not None:
+            raise ValueError("runtime and default_runtime cannot both be supplied")
+        if default_role is not None and role is not None:
+            raise ValueError("role and default_role cannot both be supplied")
+        if common_environment is not None and environment is not None:
+            raise ValueError(
+                "environment and common_environment cannot both be supplied"
+            )
+
         self._default_runtime = runtime
         self._default_timeout = timeout
         self._default_memory_size = memory_size
@@ -40,7 +63,13 @@ class LambdaApiConfig:
         self._common_security_groups = (
             list(security_groups) if security_groups is not None else []
         )
-        self._common_environments = dict(environment) if environment is not None else {}
+        self._common_environments = dict(
+            common_environment if common_environment is not None else environment or {}
+        )
+        if default_runtime is not None:
+            self._default_runtime = default_runtime
+        if default_role is not None:
+            self._default_role = default_role
 
         self._custom_runtimes = {}
         self._custom_roles = {}
@@ -60,6 +89,49 @@ class LambdaApiConfig:
             self.add_authorizer(key, authorizer)
         self._default_authorizer = None
         self.set_default_authorizer(default_authorizer)
+
+        for key, value in (role_registry or {}).items():
+            self.register_role(key, value)
+        for key, value in (environment_registry or {}).items():
+            self.register_environment(key, value)
+        for key, value in (layer_registry or {}).items():
+            self.register_layer(key, value)
+        for key, value in (security_group_registry or {}).items():
+            self.register_security_group(key, value)
+        for key, value in (vpc_registry or {}).items():
+            self.register_vpc(key, value)
+        for key, value in (dynamodb_table_registry or {}).items():
+            self.register_dynamodb_table(key, value)
+        for key, value in (s3_bucket_registry or {}).items():
+            self.register_s3_bucket(key, value)
+        for key, value in (authorizer_registry or {}).items():
+            self.register_authorizer(key, value)
+
+    @staticmethod
+    def _validate_runtime_name(runtime: str) -> None:
+        supported = {
+            "python3.10", "python3.11", "python3.12", "python3.13", "python3.14"
+        }
+        if not isinstance(runtime, str):
+            raise TypeError("runtime must be a string")
+        if runtime not in supported:
+            raise ValueError(
+                "runtime must be one of {}".format(", ".join(sorted(supported)))
+            )
+
+    @staticmethod
+    def _validate_registry_key(key: str, registry_name: str) -> None:
+        if not isinstance(key, str):
+            raise TypeError(f"{registry_name} keys must be strings")
+        if not key.strip():
+            raise ValueError(f"{registry_name} keys must not be empty or whitespace")
+
+    @classmethod
+    def _register(cls, registry: dict, key: str, value, registry_name: str) -> None:
+        cls._validate_registry_key(key, registry_name)
+        if key in registry:
+            raise ValueError(f"{registry_name} key {key!r} is already registered")
+        registry[key] = value
 
     def set_default_runtime(self, runtime: Optional[lambda_.Runtime]) -> None:
         self._default_runtime = runtime
@@ -89,9 +161,6 @@ class LambdaApiConfig:
     ) -> None:
         if security_group not in self._common_security_groups:
             self._common_security_groups.append(security_group)
-
-    def add_common_environment(self, key: str, value: str) -> None:
-        self._common_environments[key] = value
 
     def add_custom_runtime(self, key: str, runtime: lambda_.Runtime) -> None:
         self._custom_runtimes[key] = runtime
@@ -141,6 +210,50 @@ class LambdaApiConfig:
             raise ValueError(f"Authorizer key {key!r} is already registered")
         self._authorizers[key] = authorizer
 
+    def register_role(self, key: str, role: iam.IRole) -> None:
+        self._register(self._custom_roles, key, role, "role registry")
+
+    def register_environment(self, key: str, value: Mapping[str, str]) -> None:
+        if not isinstance(value, Mapping):
+            raise TypeError("environment registry values must be mappings")
+        self._register(self._custom_environments, key, dict(value), "environment registry")
+
+    def register_layer(self, key: str, layer: lambda_.ILayerVersion) -> None:
+        self._register(self._custom_layers, key, layer, "layer registry")
+
+    def register_security_group(self, key: str, security_group: ec2.ISecurityGroup) -> None:
+        self._register(
+            self._custom_security_groups, key, security_group, "security group registry"
+        )
+
+    def register_vpc(
+        self,
+        key: str,
+        vpc: ec2.IVpc,
+        vpc_subnets: Optional[ec2.SubnetSelection] = None,
+    ) -> None:
+        self._register(self._custom_vpcs, key, (vpc, vpc_subnets), "vpc registry")
+
+    def register_dynamodb_table(self, key: str, table: dynamodb.ITable) -> None:
+        self._register(self._dynamodb_tables, key, table, "dynamodb table registry")
+
+    def register_s3_bucket(self, key: str, bucket: s3.IBucket) -> None:
+        self._register(self._s3_buckets, key, bucket, "s3 bucket registry")
+
+    def register_authorizer(self, key: str, authorizer: object) -> None:
+        self._validate_registry_key(key, "authorizer registry")
+        interfaces = getattr(authorizer, "__jsii_ifaces__", ()) if authorizer is not None else ()
+        supported = {
+            "aws_cdk.aws_apigateway.IAuthorizer",
+            "aws_cdk.aws_apigatewayv2.IHttpRouteAuthorizer",
+        }
+        if not any(
+            f"{interface.__module__}.{interface.__name__}" in supported
+            for interface in interfaces
+        ):
+            raise TypeError("authorizer registry values must be CDK authorizers")
+        self._register(self._authorizers, key, authorizer, "authorizer registry")
+
     def set_default_authorizer(self, key: Optional[str]) -> None:
         if key is None:
             self._default_authorizer = None
@@ -179,7 +292,10 @@ class LambdaApiConfig:
             custom_runtimes=dict(self._custom_runtimes),
             custom_roles=dict(self._custom_roles),
             custom_layers=dict(self._custom_layers),
-            custom_environments=dict(self._custom_environments),
+            custom_environments={
+                key: dict(value) if isinstance(value, Mapping) else value
+                for key, value in self._custom_environments.items()
+            },
             custom_security_groups=dict(self._custom_security_groups),
             custom_vpcs=dict(self._custom_vpcs),
             dynamodb_tables=dict(self._dynamodb_tables),

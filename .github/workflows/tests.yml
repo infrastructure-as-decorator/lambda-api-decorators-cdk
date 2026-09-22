@@ -29,7 +29,7 @@ jobs:
       - name: Install package and test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install --editable . pytest tomli
+          python -m pip install --editable . lambda-api-decorators pytest tomli
 
       - name: Verify package import
         run: python -c "import lambda_api_decorators_cdk"

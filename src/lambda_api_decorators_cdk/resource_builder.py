@@ -50,7 +50,7 @@ class ResourceBuilder():
                 ) -> 'ResourceBuilder':
     
         '''
-        Creates base instance of a Resource Builder. By default, there are no predetermined custom, common nor default settings with the exception of the following custom runtimes: python3.8, python3.9, python3.10, python3.11, python3.12, python3.13, python3.14.
+        Creates base instance of a Resource Builder. By default, there are no predetermined custom, common nor default settings with the exception of the following custom runtimes: python3.10, python3.11, python3.12, python3.13, python3.14.
         You can optionally specify arguments (Keep in mind some of them are constructs of the aws_cdk toolkit) such as:
         @param default_runtime
         @param default_timeout
@@ -93,8 +93,6 @@ class ResourceBuilder():
         self._physical_dynamodb_tables = {}
         self._physical_s3_buckets = {}
 
-        self.custom_runtimes.update({'python3.8':lambda_.Runtime.PYTHON_3_8})
-        self.custom_runtimes.update({'python3.9':lambda_.Runtime.PYTHON_3_9})
         self.custom_runtimes.update({'python3.10':lambda_.Runtime.PYTHON_3_10})
         self.custom_runtimes.update({'python3.11':lambda_.Runtime.PYTHON_3_11})
         self.custom_runtimes.update({'python3.12':lambda_.Runtime.PYTHON_3_12})
@@ -131,10 +129,6 @@ class ResourceBuilder():
     def add_common_security_group(self, security_group):
         '''Add a common security group for all your Lambda Functions.'''
         self.common_security_groups.append(security_group) if security_group not in self.common_security_groups else None
-
-    def add_common_environment(self, key:str, value):
-        '''Add a common environment variable and value for all your Lambda Functions.'''
-        self.common_environments.update({key:value})
 
     def add_custom_vpc(self, key: str, vpc: ec2.Vpc, vpc_subnets: list):
         self.custom_vpcs.update({key:(vpc, vpc_subnets)})
@@ -197,7 +191,7 @@ class ResourceBuilder():
     def get_custom_layer(self, value: str) -> lambda_.LayerVersion | _lambda_python.PythonLayerVersion:
         if value in self.custom_layers:
             return self.custom_layers[value]
-        else: raise KeyError(f'Value {value} not previously declared as custom layer')
+        else: raise KeyError(f'layer registry key {value!r} is not registered')
 
     def get_custom_roles(self):
         return self.custom_roles
@@ -205,26 +199,28 @@ class ResourceBuilder():
     def get_custom_role(self, value: str) -> iam.Role:
         if value in self.custom_roles:
             return self.custom_roles[value]
-        else: raise KeyError(f'Value {value} not previously declared as custom role')
+        else: raise KeyError(f'role registry key {value!r} is not registered')
     
     def get_custom_security_group(self, value: str) -> ec2.SecurityGroup:
         if value in self.custom_security_groups:
             return self.custom_security_groups[value]
-        else: raise KeyError(f'Value {value} not previously declared as custom security group')
+        else: raise KeyError(f'security group registry key {value!r} is not registered')
     
-    def get_custom_environment(self, value: str) -> str:
+    def get_custom_environment(self, value: str):
         if value in self.custom_environments:
             return self.custom_environments[value]
-        else: raise KeyError(f'Value {value} not previously declared as custom environment')
+        else: raise KeyError(f'environment registry key {value!r} is not registered')
     
     def get_custom_runtime(self, value: str) -> lambda_.Runtime: 
         if value in self.custom_runtimes:
             return self.custom_runtimes[value]
-        else: raise KeyError(f'Value {value} not previously declared as custom runtime')
+        else: raise KeyError(f'runtime alias {value!r} is not registered')
     
     def get_custom_vpc(self, value: str) -> tuple:
-        #TODO
-        return self.custom_vpcs[value]
+        try:
+            return self.custom_vpcs[value]
+        except KeyError:
+            raise KeyError(f'vpc registry key {value!r} is not registered') from None
 
     def build(self, construct, api_resource: apigateway.IResource, lambda_path:str,
               print_tree: bool = False,
@@ -312,6 +308,8 @@ class ResourceBuilder():
 
     def _resolve_runtime(self, decorators: dict):
         runtime = self.get_default_runtime()
+        if isinstance(runtime, str):
+            runtime = self.get_custom_runtime(runtime)
         if 'runtime' in decorators:
             runtime = self.get_custom_runtime(decorators['runtime'])
         return runtime
@@ -476,9 +474,17 @@ class ResourceBuilder():
             elif key == 'environment':
                 if type(value) == list:
                     for v in value:
-                        options[key][v] = self.get_custom_environment(v)
+                        selected = self.get_custom_environment(v)
+                        if isinstance(selected, dict):
+                            options[key].update(selected)
+                        else:
+                            options[key][v] = selected
                 else:
-                    options[key][value] = self.get_custom_environment(value)
+                    selected = self.get_custom_environment(value)
+                    if isinstance(selected, dict):
+                        options[key].update(selected)
+                    else:
+                        options[key][value] = selected
             elif key == 'vpc':
                 options[key] = self.get_custom_vpc(value)
         return options
@@ -841,10 +847,37 @@ class ResourceBuilder():
         return self.build_lambda_function(
             construct, method, lambda_root, source_layout)
 
+    @staticmethod
+    def _validate_single_route_handlers(graph: ast_helper.Resource) -> None:
+        seen = {}
+
+        def visit(resource):
+            for method in resource.get_methods():
+                handler = (
+                    method.get_path_to_file(),
+                    method.get_file(),
+                    method.get_handler(),
+                    method.get_method(),
+                )
+                if handler in seen:
+                    raise ValueError(
+                        f"Handler {handler[2]!r} has multiple routes for "
+                        f"HTTP method {handler[3]!r}: "
+                        f"{seen[handler]!r} and {resource.get_path()!r}"
+                    )
+                seen[handler] = resource.get_path()
+            for child in resource.get_connections():
+                visit(child)
+
+        visit(graph)
+
     def build_from_graph(self, construct, graph: ast_helper.Resource,
                          api_resource: apigateway.IResource,
                          lambda_root: Optional[Path] = None,
                          source_layout: SourceLayout = SourceLayout.ROOT):
+
+        if isinstance(construct, Construct):
+            self._validate_single_route_handlers(graph)
 
         path = graph.get_path()
         level = path.count('/')
@@ -877,6 +910,9 @@ class ResourceBuilder():
                               http_api: apigateway2.HttpApi,
                               lambda_root: Optional[Path] = None,
                               source_layout: SourceLayout = SourceLayout.ROOT):
+        if isinstance(construct, Construct):
+            self._validate_single_route_handlers(graph)
+
         method_mapping = {
             'GET': apigateway2.HttpMethod.GET,
             'POST': apigateway2.HttpMethod.POST,
