@@ -72,7 +72,6 @@ def test_constructor_owns_input_containers():
     ("set_default_role", ("role",), "default_role", "role"),
     ("add_common_layer", ("layer",), "common_layers", ["layer"]),
     ("add_common_security_group", ("group",), "common_security_groups", ["group"]),
-    ("add_common_environment", ("A", "one"), "common_environments", {"A": "one"}),
 ])
 def test_default_and_common_mutators_return_none(method, args, attribute, expected):
     config = LambdaApiConfig()
@@ -132,14 +131,12 @@ def test_repeated_custom_vpc_key_replaces_vpc_and_subnet_selection():
     assert second[0] is second_vpc and second[1] is second_subnets
 
 
-def test_common_duplicates_and_environment_overwrite_match_builder_semantics():
-    config = LambdaApiConfig()
+def test_common_duplicates_and_constructor_environment_match_builder_semantics():
+    config = LambdaApiConfig(environment={"A": "two"})
     config.add_common_layer("same")
     config.add_common_layer("same")
     config.add_common_security_group("same")
     config.add_common_security_group("same")
-    config.add_common_environment("A", "one")
-    config.add_common_environment("A", "two")
     builder = config._create_resource_builder()
     assert builder.common_layers == ["same"]
     assert builder.common_security_groups == ["same"]
@@ -183,13 +180,13 @@ def test_builder_mutation_before_later_snapshot_does_not_mutate_config():
 
 
 def test_resource_builder_builtin_runtimes_are_fresh_and_do_not_mutate_config():
-    expected = {"python3.8", "python3.9", "python3.10", "python3.11", "python3.12"}
+    expected = {"python3.10", "python3.11", "python3.12", "python3.13", "python3.14"}
     config = LambdaApiConfig()
     first = config._create_resource_builder()
-    assert set(first.custom_runtimes) >= expected
+    assert set(first.custom_runtimes) == expected
     first.custom_runtimes["builder-only"] = object()
     second = config._create_resource_builder()
-    assert set(second.custom_runtimes) >= expected
+    assert set(second.custom_runtimes) == expected
     assert "builder-only" not in second.custom_runtimes
 
 
