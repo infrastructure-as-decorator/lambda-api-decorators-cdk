@@ -39,7 +39,7 @@ jobs:
       - name: Install test and build dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install build pytest setuptools-scm
+          python -m pip install build pytest setuptools-scm lambda-api-decorators
           python -m pip install .
 
       - name: Run tests
