@@ -5,7 +5,7 @@ from aws_cdk import App, Stack, aws_apigateway as apigateway
 from aws_cdk import aws_apigatewayv2_authorizers as http_authorizers
 from aws_cdk import aws_cognito as cognito
 
-from lambda_api_decorators_cdk import LambdaApiConfig
+from lambda_api_decorators_cdk import LambdaApi, LambdaApiConfig
 
 
 @pytest.fixture
@@ -41,6 +41,95 @@ def test_constructor_registers_both_authorizer_families_before_default(authorize
         "jwt": authorizers["http"],
     }
     assert builder.default_authorizer == "users"
+
+
+def test_constructor_registers_authorizer_registry_before_selecting_default(authorizers):
+    cognito_authorizer = authorizers["rest"]
+    config = LambdaApiConfig(
+        authorizer_registry={"cognito": cognito_authorizer},
+        default_authorizer="cognito",
+    )
+
+    builder = config._create_resource_builder()
+    assert builder.authorizers["cognito"] is cognito_authorizer
+    assert builder.default_authorizer == "cognito"
+
+
+def test_authorizer_registry_default_resolves_to_the_original_cdkl_object(authorizers):
+    cognito_authorizer = authorizers["rest"]
+    config = LambdaApiConfig(
+        authorizer_registry={"cognito": cognito_authorizer},
+        default_authorizer="cognito",
+    )
+
+    builder = config._create_resource_builder()
+    assert builder.authorizers[builder.default_authorizer] is cognito_authorizer
+
+
+@pytest.mark.parametrize("registry", [{}, {"cognito": None}])
+def test_authorizer_registry_default_rejects_an_unregistered_key(authorizers, registry):
+    with pytest.raises((KeyError, TypeError), match="cognito|authorizer"):
+        LambdaApiConfig(authorizer_registry=registry, default_authorizer="cognito")
+
+
+def test_authorizer_registry_without_default_remains_public_by_default(authorizers):
+    cognito_authorizer = authorizers["rest"]
+    config = LambdaApiConfig(authorizer_registry={"cognito": cognito_authorizer})
+
+    builder = config._create_resource_builder()
+    assert builder.authorizers["cognito"] is cognito_authorizer
+    assert builder.default_authorizer is None
+
+
+def test_authorizer_registry_and_default_snapshots_are_isolated(authorizers):
+    cognito_authorizer = authorizers["rest"]
+    config = LambdaApiConfig(
+        authorizer_registry={"cognito": cognito_authorizer},
+        default_authorizer="cognito",
+    )
+
+    first = config._create_resource_builder()
+    second = config._create_resource_builder()
+    assert first is not second
+    assert first.authorizers is not second.authorizers
+    assert first.authorizers["cognito"] is second.authorizers["cognito"] is cognito_authorizer
+    assert first.default_authorizer == second.default_authorizer == "cognito"
+    first.authorizers.clear()
+    assert config._create_resource_builder().authorizers["cognito"] is cognito_authorizer
+
+
+def test_registering_authorizer_then_selecting_default_still_works(authorizers):
+    cognito_authorizer = authorizers["rest"]
+    config = LambdaApiConfig()
+    config.register_authorizer("cognito", cognito_authorizer)
+    config.set_default_authorizer("cognito")
+
+    builder = config._create_resource_builder()
+    assert builder.authorizers["cognito"] is cognito_authorizer
+    assert builder.default_authorizer == "cognito"
+
+
+def test_lambda_api_consumes_registry_and_default_without_constructor_keyerror(
+    authorizers, monkeypatch
+):
+    calls = []
+
+    class NoopBuilder:
+        def build(self, *args, **kwargs):
+            calls.append((args, kwargs))
+
+    monkeypatch.setattr(
+        LambdaApiConfig,
+        "_create_resource_builder",
+        lambda self: NoopBuilder(),
+    )
+    config = LambdaApiConfig(
+        authorizer_registry={"cognito": authorizers["rest"]},
+        default_authorizer="cognito",
+    )
+
+    LambdaApi(Stack(App(), "LambdaApiAuthorizerConfig"), "Api", lambda_path="lambdas", config=config)
+    assert calls
 
 
 @pytest.mark.parametrize("key,error", [(None, TypeError), (1, TypeError), ("", ValueError), ("  ", ValueError)])

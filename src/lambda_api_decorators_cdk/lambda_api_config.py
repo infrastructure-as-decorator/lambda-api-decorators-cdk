@@ -87,6 +87,8 @@ class LambdaApiConfig:
             self.add_s3_bucket(key, bucket)
         for key, authorizer in (authorizers or {}).items():
             self.add_authorizer(key, authorizer)
+        for key, authorizer in (authorizer_registry or {}).items():
+            self.register_authorizer(key, authorizer)
         self._default_authorizer = None
         self.set_default_authorizer(default_authorizer)
 
@@ -104,8 +106,6 @@ class LambdaApiConfig:
             self.register_dynamodb_table(key, value)
         for key, value in (s3_bucket_registry or {}).items():
             self.register_s3_bucket(key, value)
-        for key, value in (authorizer_registry or {}).items():
-            self.register_authorizer(key, value)
 
     @staticmethod
     def _validate_runtime_name(runtime: str) -> None:
