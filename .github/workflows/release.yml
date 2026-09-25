@@ -81,5 +81,8 @@ jobs:
           print(f"Wheel metadata version: {metadata['Version']}")
           PY
 
+      - name: Verify packaged API contract
+        run: python tests/verify_contract_artifacts.py dist
+
       - name: Publish distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
