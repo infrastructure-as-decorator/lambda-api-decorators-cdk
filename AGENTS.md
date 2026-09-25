@@ -230,3 +230,11 @@ Keep public APIs intentionally small.
 When an implementation detail is not useful to callers, keep it private.
 
 If repository behavior contradicts an assumption in the task, report the conflict rather than silently redesigning unrelated code.
+
+## Packaged contract
+
+When available, use `lambda-api-decorators-development` and load the local
+`_agent/api-contract.json` and `_agent/behavior.md` before changing public
+behavior. Public changes update the contract and focused tests together; the
+contract contains no package version or future release. Validate focused and
+full tests, `compileall`, built artifacts, and `git diff --check`.
