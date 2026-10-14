@@ -25,6 +25,7 @@ class LambdaApi(Construct):
         ] = None,
         api_type: Optional[ApiType] = None,
         config: Optional[LambdaApiConfig] = None,
+        endpoint_type: Optional[apigateway.EndpointType] = None,
     ) -> None:
         super().__init__(scope, construct_id)
 
@@ -34,19 +35,42 @@ class LambdaApi(Construct):
             raise TypeError("config must be a LambdaApiConfig or None")
         if api_type is not None and not isinstance(api_type, ApiType):
             raise TypeError("api_type must be an ApiType or None")
+        if endpoint_type is not None and not isinstance(
+                endpoint_type, apigateway.EndpointType):
+            raise TypeError(
+                "endpoint_type must be an apigateway.EndpointType or None")
 
         inferred_type = self._infer_api_type(api) if api is not None else None
         if api_type is not None and inferred_type is not None and api_type is not inferred_type:
             raise ValueError(
                 f"api_type {api_type!r} conflicts with supplied {inferred_type.value} API"
             )
+        if endpoint_type is not None and api is not None:
+            raise ValueError(
+                "endpoint_type cannot be supplied when api is provided")
 
         resolved_type = inferred_type or api_type or ApiType.REST
+        if endpoint_type is not None and resolved_type is ApiType.HTTP:
+            raise ValueError(
+                "endpoint_type is only supported for automatically created REST APIs"
+            )
+        if endpoint_type is apigateway.EndpointType.PRIVATE:
+            raise ValueError(
+                "EndpointType.PRIVATE is not supported for automatically created REST APIs"
+            )
         resolved_config = config if config is not None else LambdaApiConfig()
 
         if api is None:
             if resolved_type is ApiType.REST:
-                api = apigateway.RestApi(self, "RestApi")
+                resolved_endpoint_type = (
+                    endpoint_type or apigateway.EndpointType.EDGE)
+                api = apigateway.RestApi(
+                    self,
+                    "RestApi",
+                    endpoint_configuration=apigateway.EndpointConfiguration(
+                        types=[resolved_endpoint_type],
+                    ),
+                )
             else:
                 api = apigatewayv2.HttpApi(self, "HttpApi")
 

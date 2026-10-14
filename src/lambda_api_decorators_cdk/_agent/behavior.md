@@ -4,6 +4,14 @@
 
 `LambdaApi` selects REST by default, infers the API family from a supplied concrete REST or HTTP API, and rejects a conflicting explicit `api_type`. Configuration must be complete before construction; `LambdaApiConfig` creates an isolated `ResourceBuilder` snapshot and does not deep-copy CDK constructs.
 
+Automatically created REST APIs use an EDGE endpoint by default. The optional
+`endpoint_type` parameter accepts the native `aws_apigateway.EndpointType` and
+supports `EndpointType.EDGE` or `EndpointType.REGIONAL`; REGIONAL must be
+selected explicitly. `EndpointType.PRIVATE` is unsupported and deferred.
+HTTP API v2 is regional and rejects `endpoint_type`. A supplied API retains its
+own endpoint configuration and rejects any explicit `endpoint_type` because
+the supplied API is owned and configured by the caller.
+
 Explicit configuration wins over convention. Runtime, role, environment, layer, VPC, security group, table, bucket, and authorizer registries resolve named decorator values. A registry is a lookup mechanism, not an authorization grant.
 
 ## Routes and authorization

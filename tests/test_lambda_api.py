@@ -4,6 +4,7 @@ from enum import Enum
 import pytest
 from aws_cdk import App, Stack, aws_apigateway as apigateway
 from aws_cdk import aws_apigatewayv2 as apigatewayv2
+from aws_cdk.assertions import Template
 from constructs import Construct
 
 from lambda_api_decorators_cdk import ApiType, LambdaApi, LambdaApiConfig
@@ -78,16 +79,81 @@ def test_rest_is_default_and_builds_under_construct(stack, builders, explicit):
     assert builders[0].http_calls == []
 
 
+@pytest.mark.parametrize("endpoint_type", [None, apigateway.EndpointType.EDGE])
+def test_created_rest_api_defaults_to_or_accepts_edge_endpoint(
+        stack, builders, endpoint_type):
+    kwargs = {} if endpoint_type is None else {"endpoint_type": endpoint_type}
+    subject = LambdaApi(stack, "Api", lambda_path="lambdas", **kwargs)
+    subject.api.root.add_resource("health").add_method(
+        "GET", apigateway.MockIntegration())
+
+    Template.from_stack(stack).has_resource_properties(
+        "AWS::ApiGateway::RestApi",
+        {"EndpointConfiguration": {"Types": ["EDGE"]}},
+    )
+
+
+def test_created_rest_api_accepts_regional_endpoint(stack, builders):
+    subject = LambdaApi(
+        stack, "Api", lambda_path="lambdas",
+        endpoint_type=apigateway.EndpointType.REGIONAL,
+    )
+    subject.api.root.add_resource("health").add_method(
+        "GET", apigateway.MockIntegration())
+
+    Template.from_stack(stack).has_resource_properties(
+        "AWS::ApiGateway::RestApi",
+        {"EndpointConfiguration": {"Types": ["REGIONAL"]}},
+    )
+
+
+@pytest.mark.parametrize("endpoint_type", [
+    apigateway.EndpointType.PRIVATE,
+    "REGIONAL",
+    object(),
+])
+def test_invalid_created_rest_endpoint_type_fails_before_build(
+        stack, builders, endpoint_type):
+    with pytest.raises((TypeError, ValueError)):
+        LambdaApi(
+            stack, "Api", lambda_path="lambdas", endpoint_type=endpoint_type)
+    assert builders == []
+    assert not any(
+        isinstance(node, apigateway.RestApiBase)
+        for node in stack.node.find_all()
+    )
+
+
+@pytest.mark.parametrize("endpoint_type", [
+    apigateway.EndpointType.EDGE,
+    apigateway.EndpointType.REGIONAL,
+])
+def test_http_api_rejects_explicit_endpoint_type_before_build(
+        stack, builders, endpoint_type):
+    with pytest.raises(ValueError):
+        LambdaApi(
+            stack, "Api", lambda_path="lambdas", api_type=ApiType.HTTP,
+            endpoint_type=endpoint_type,
+        )
+    assert builders == []
+    assert not any(
+        isinstance(node, apigatewayv2.HttpApi)
+        for node in stack.node.find_all()
+    )
+
+
 def test_lambda_api_constructor_has_layer_autodiscovery_parameter():
     parameters = inspect.signature(LambdaApi.__init__).parameters
     assert list(parameters) == [
         "self", "scope", "construct_id", "lambda_path", "source_layout",
-        "layers_path", "api", "api_type", "config"]
+        "layers_path", "api", "api_type", "config", "endpoint_type"]
     for name in (
-        "lambda_path", "source_layout", "layers_path", "api", "api_type", "config"
+        "lambda_path", "source_layout", "layers_path", "api", "api_type",
+        "config", "endpoint_type"
     ):
         assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
     assert parameters["layers_path"].default is None
+    assert parameters["endpoint_type"].default is None
     assert not {"api_resource", "print_tree"}.intersection(parameters)
 
 
@@ -177,6 +243,23 @@ def test_imported_rest_api_is_supported(stack, builders):
     assert root.resource_id == imported.root.resource_id
 
 
+@pytest.mark.parametrize("api_kind", ["created", "imported"])
+def test_supplied_rest_api_rejects_explicit_endpoint_type(
+        stack, builders, api_kind):
+    api = (
+        apigateway.RestApi(stack, "Existing")
+        if api_kind == "created"
+        else apigateway.RestApi.from_rest_api_attributes(
+            stack, "Imported", rest_api_id="api-id", root_resource_id="root-id")
+    )
+    with pytest.raises(ValueError):
+        LambdaApi(
+            stack, "Api", lambda_path="lambdas", api=api,
+            endpoint_type=apigateway.EndpointType.REGIONAL,
+        )
+    assert builders == []
+
+
 @pytest.mark.parametrize("explicit", [False, True])
 def test_existing_http_is_inferred_and_reused(stack, builders, explicit):
     existing = apigatewayv2.HttpApi(stack, "Existing")
@@ -191,6 +274,16 @@ def test_existing_http_is_inferred_and_reused(stack, builders, explicit):
     after = [node for node in stack.node.find_all()
              if isinstance(node, apigatewayv2.HttpApi)]
     assert after == before
+
+
+def test_supplied_http_api_rejects_explicit_endpoint_type(stack, builders):
+    existing = apigatewayv2.HttpApi(stack, "Existing")
+    with pytest.raises(ValueError):
+        LambdaApi(
+            stack, "Api", lambda_path="lambdas", api=existing,
+            endpoint_type=apigateway.EndpointType.EDGE,
+        )
+    assert builders == []
 
 
 @pytest.mark.parametrize("kind,wrong", [

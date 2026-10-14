@@ -19,3 +19,13 @@ def test_contract_covers_public_configuration_and_types():
     config_methods = {item["name"] for item in classes["LambdaApiConfig"]["methods"]}
     assert {"register_role", "register_environment", "register_authorizer", "set_default_authorizer"} <= config_methods
     assert classes["LambdaApi"]["methods"][0]["kind"] == "property"
+
+
+def test_contract_documents_rest_endpoint_type_configuration():
+    contract_path = Path(__file__).parents[1] / "src/lambda_api_decorators_cdk/_agent/api-contract.json"
+    contract = json.loads(contract_path.read_text())
+    lambda_api = next(item for item in contract["classes"] if item["name"] == "LambdaApi")
+    assert "endpoint_type: Optional[EndpointType] = None" in lambda_api["signature"]
+    behavior = contract_path.with_name("behavior.md").read_text()
+    for term in ("EDGE", "REGIONAL", "PRIVATE", "HTTP API v2", "supplied API"):
+        assert term in behavior
