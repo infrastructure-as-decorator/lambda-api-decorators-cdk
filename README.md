@@ -88,7 +88,8 @@ The high-level construct builds immediately during construction. It accepts:
 - `layers_path`: optional layer-discovery directory;
 - `api`: a supported existing REST API or concrete `aws_apigatewayv2.HttpApi`;
 - `api_type`: `ApiType.REST` or `ApiType.HTTP`;
-- `config`: a `LambdaApiConfig` snapshot source.
+- `config`: a `LambdaApiConfig` snapshot source;
+- `endpoint_type`: optional native `aws_apigateway.EndpointType` for an automatically created REST API.
 
 REST is the default. HTTP APIs use `ApiType.HTTP`:
 
@@ -98,6 +99,26 @@ from lambda_api_decorators_cdk import ApiType, LambdaApi
 
 LambdaApi(self, "HttpApi", lambda_path="lambdas", api_type=ApiType.HTTP)
 ```
+
+Automatically created REST APIs are EDGE-optimized by default. Select a
+REGIONAL endpoint explicitly when needed:
+
+```python
+from aws_cdk import aws_apigateway as apigateway
+from lambda_api_decorators_cdk import LambdaApi
+
+
+LambdaApi(
+    self,
+    "Api",
+    lambda_path="lambdas",
+    endpoint_type=apigateway.EndpointType.REGIONAL,
+)
+```
+
+HTTP API v2 is regional and does not accept `endpoint_type`. Supplied APIs keep
+their own endpoint configuration, and `EndpointType.PRIVATE` is not currently
+supported through this parameter.
 
 Created and imported REST APIs are supported. Concrete `HttpApi` instances are
 supported for HTTP; the contract does not promise general support for every
